@@ -28,7 +28,6 @@
 
 require 'vendor/autoload.php';
 
-include_once 'php/00-conf.php';
 include_once 'php/50-functions.php';
 include_once 'php/79-1c-const.php';
 
