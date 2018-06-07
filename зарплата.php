@@ -25,20 +25,71 @@
  * Документы отгрузок: Document_РеализацияТоваровУслуг
  * 
  **********************************************************/
+$installpath = '/home/user/proj/03-1c-report';
+require $installpath.'/vendor/autoload.php';
 
-require 'vendor/autoload.php';
+use GuzzleHttp\Client;
+use GuzzleHttp\Psr7\Request;
 
-include_once 'php/50-functions.php';
-include_once 'php/79-1c-const.php';
+include_once $installpath.'/php/00-conf.php';
+include_once $installpath.'/php/50-functions.php';
 
-// список наших контрагентов. заказы типа "сами у себя" или "своим сотрудникам" не идут в зарплату
-$nouse_Контрагенты = array( '969aы140-0a1f-11e7-6983-001e22348e39' => 'ИП Иванов Иван Иванович',
-                            '58353082-c18b-11e4-7299-002e22348e39' => 'Сотрудники'
+//***************************************************************************
+// mongo connect
+$mongo = new MongoDB\Client("mongodb://$mongo_user:$mongo_pass@$mongo_serv");
+// 1c connect
+$client = new Client([
+	'base_uri' => "$server1c/$base1c/odata/standard.odata/",
+	'timeout'  => 600.0,
+]);
+//***************************************************************************
+
+//менеджеры
+$Менеджеры = getMongoData($mongo,'ut','Catalog_Пользователи');
+//контрагенты
+$Контрагенты = getMongoData($mongo,'ut','Catalog_Контрагенты');
+//Организации
+$Организации = getMongoData($mongo,'ut','Catalog_Организации');
+//Партнеры
+$raw = get1cData($client,$userName, $userAccessKey,'Catalog_Партнеры',
+			'Ref_Key,Description,ОсновнойМенеджер_Key',
+			''
+			);
+foreach($raw as $tmp) {
+	$Партнеры[$tmp['Ref_Key']]['Description'] = $tmp['Description'];
+	$Партнеры[$tmp['Ref_Key']]['ОсновнойМенеджер_Key'] = $tmp['ОсновнойМенеджер_Key'];
+}
+
+//прием начальной и конечной даты
+// при вызове из консоли
+if (php_sapi_name() == "cli") {
+	$startdate = @$argv[1];
+	$stopdate = @$argv[2];
+}
+else { // при вызове через GET/POST запрос
+	$startdate = @$_REQUEST['startdate'];
+	$stopdate = @$_REQUEST['stopdate'];
+}
+// если даты не заданы, то берем начало текущего месяца и текущую дату
+if ((!isset($startdate)) or ($startdate == '')) {
+    $startdate = date('d.m.Y',mktime(0, 0, 0, date("m"), date("1"), date("Y")));
+}
+if ((!isset($stopdate)) or ($stopdate == '')) {
+    $stopdate = date('d.m.Y',mktime(23, 59, 59, date("m"), date("d"), date("Y")));
+}
+
+$time1 = strtotime($startdate.' 00:00:00');
+$time2 = strtotime($stopdate.' 23:59:59');
+
+// список наших контрагентов. заказы на них не идут в зарплату
+$nouse_Контрагенты = array( '969a3140-0a1f-11e7-6983-001e62748e39' => 'ИП Иванов Иван Иванович',
+                            '4986ea16-2436-11e7-208c-001e62748e39' => 'Рога и копыта ООО',
+                            '58353082-c18b-11e4-7299-002590d86530' => 'Сотрудники'
                             );
 // готовим массив для сбора инфы по заказам
 $Заказы = array();
 //******************************************************************************
-$raw = get1cData('Document_РеализацияТоваровУслуг',
+$raw = get1cData($client,$userName, $userAccessKey,'Document_РеализацияТоваровУслуг',
             'ЗаказКлиента,Date,СуммаДокумента',
             'ЗаказКлиента_Type eq \'StandardODATA.Document_ЗаказКлиента\''
 				);
@@ -74,14 +125,15 @@ foreach ($raw as $Реализация) {
         $Заказы[$Заказ_Key]['ОбщаяСуммаЧека'] = 0;
     }
 }
+
 //******************************************************************************
-$raw = get1cData('Document_ПоступлениеБезналичныхДенежныхСредств',
+$raw = get1cData($client,$userName, $userAccessKey,'Document_ПоступлениеБезналичныхДенежныхСредств',
             'РасшифровкаПлатежа,Date',
                     ''
 				);
 foreach ($raw as $Платежка) {
     $ДатаПлатежки = strtotime(trim($Платежка['Date']));
-    
+
     foreach ($Платежка['РасшифровкаПлатежа'] as $РасшифровкаПлатежа) {
         if ($РасшифровкаПлатежа['Заказ_Type'] != 'StandardODATA.Document_ЗаказКлиента') { continue; }
         if ($РасшифровкаПлатежа['Заказ'] == '00000000-0000-0000-0000-000000000000') { continue; }
@@ -97,8 +149,9 @@ foreach ($raw as $Платежка) {
         $Заказы[$Заказ_Key]['ОбщаяСуммаПлатежки'] += trim($РасшифровкаПлатежа['Сумма']);
     }
 }
+
 //******************************************************************************
-$raw = get1cData('Document_ПриходныйКассовыйОрдер',
+$raw = get1cData($client,$userName, $userAccessKey,'Document_ПриходныйКассовыйОрдер',
 			'РасшифровкаПлатежа,Date',
 			''
 				);
@@ -120,10 +173,12 @@ foreach ($raw as $КассовыйЧек) {
         $Заказы[$Заказ_Key]['ОбщаяСуммаЧека'] += trim($РасшифровкаПлатежа['Сумма']);
     }
 }
+
 //******************************************************************************
-$tasks = get1cData('Document_ЗаказКлиента',
+$begining = date('Y-m-d\TH:i:s',mktime(0, 0, 0, date("m"), date("d"), date("Y")-1)); //год назад полночь сегодня
+$tasks = get1cData($client,$userName, $userAccessKey,'Document_ЗаказКлиента',
 								'Ref_Key,Number,СуммаДокумента,ДатаОтгрузки,Менеджер_Key,Контрагент_Key,Организация_Key,Партнер_Key,Date',
-                                ''
+                                'Date gt datetime\''.$begining.'\''
 								);
 foreach ($tasks as $single_task) {
     $Заказ_Key = trim($single_task['Ref_Key']);
@@ -132,21 +187,28 @@ foreach ($tasks as $single_task) {
     
     $Заказы[$Заказ_Key]['Number'] = trim($single_task['Number']);
     $Заказы[$Заказ_Key]['СуммаДокумента'] = trim($single_task['СуммаДокумента']);
-    $Заказы[$Заказ_Key]['Менеджер_Key'] = trim($single_task['Менеджер_Key']);
-    $Заказы[$Заказ_Key]['Партнер_Key'] = trim($single_task['Партнер_Key']);
     $Заказы[$Заказ_Key]['ДатаЗаказа'] = strtotime(trim($single_task['Date']));
-    $Заказы[$Заказ_Key]['Контрагент_Key'] = trim($single_task['Контрагент_Key']);
-    $Заказы[$Заказ_Key]['Партнер_Key'] = trim($single_task['Партнер_Key']);
-    $Заказы[$Заказ_Key]['Организация_Key'] = trim($single_task['Организация_Key']);
-}
-//~ print_r($Заказы);
-//~ exit;
-//******************************************************************************
-$time1 = strtotime(date('Y-m-d\TH:i:s',mktime(0, 0, 0, date("m"), date("1"), date("Y"))));
-$time2 = strtotime(date('Y-m-d\TH:i:s',mktime(0, 0, 0, date("m")+1, date("1"), date("Y"))));
+    
+    $Заказы[$Заказ_Key]['Менеджер_Key'] = $Менеджеры[$single_task['Менеджер_Key']];
+    
+    $Партнер_Key = $Партнеры[$single_task['Партнер_Key']]['ОсновнойМенеджер_Key'];
+            if (!array_key_exists($Партнер_Key,$Менеджеры)) {
+                $Заказы[$Заказ_Key]['Менеджер_клиента'] = 'Нет';
+            } else {
+                 $Заказы[$Заказ_Key]['Менеджер_клиента'] = $Менеджеры[$Партнер_Key];
+            }
 
-//~ $output = 'Дата;Номер Заказа;Сумма заказа;Клиент;Организация;Реализации;Оплаты;Менеджер заказа; Менеджер клиента'.PHP_EOL;
-$output = '<th>Дата</th><th>Номер Заказа</th><th>Сумма заказа</th><th style="width:  8.33%">Клиент</th><th>Организация</th><th>Реализации</th><th>Оплаты</th><th>Менеджер заказа</th><th>Менеджер клиента</th>'.PHP_EOL;
+    $Заказы[$Заказ_Key]['Контрагент_Key'] = $Контрагенты[$single_task['Контрагент_Key']];
+    $Заказы[$Заказ_Key]['Партнер_Key'] = $Партнеры[$single_task['Партнер_Key']];
+    $Заказы[$Заказ_Key]['Организация_Key'] = $Организации[trim($single_task['Организация_Key'])];
+}
+//******************************************************************************
+$output = '<th>Номер Заказа</th><th>Дата</th><th>Сумма заказа</th>'.
+            '<th style="width:  16%">Клиент</th>'.
+            '<th style="width:  16%">Организация</th>'.
+            '<th>Реализации</th><th>Оплаты</th><th>Дней прошло</th>'.
+            '<th>Менеджер заказа</th><th>Менеджер клиента</th>'.PHP_EOL;
+$ordercount = 0;
 foreach ($Заказы as $Ref_Key => $Заказ) {
     
     if ( !array_key_exists('СуммаДокумента',$Заказ) ) { continue; } // если нет отгрузки, пропускаем
@@ -157,66 +219,76 @@ foreach ($Заказы as $Ref_Key => $Заказ) {
     
     $ВсяСуммаОплаты = $Заказ['ОбщаяСуммаПлатежки'] + $Заказ['ОбщаяСуммаЧека'];
     
-    if ($ВсяСуммаОплаты == $Заказ['СуммаДокумента']) {
+    if ($ВсяСуммаОплаты >= $Заказ['СуммаДокумента']) {
         $ПоследняяДата = max($Заказ['ПоследняяДатаРеализации'],$Заказ['ПоследняяДатаПлатежки'],$Заказ['ПоследняяДатаЧека']);
         
         if (($ПоследняяДата < $time2) and ($ПоследняяДата >= $time1)) {
-            
-            $Партнер_Key = $Партнеры[$Заказ['Партнер_Key']]['ОсновнойМенеджер_Key'];
-            if (!array_key_exists($Партнер_Key,$Менеджеры)) {
-                $Менеджер_клиента = 'нет менеджера клиента';
-            } else {
-                $Менеджер_клиента = $Менеджеры[$Партнер_Key];
-            }
-            
+
             // собираем отгрузки
-            $Реализации = '';
+            $Реализации = '<ol>';
             foreach ($Заказ['ДатаРеализации'] as $key => $ДатаРеализации) {
-                $Реализации .= 'Дата: '.date('d.m.Y',$ДатаРеализации).'<br>';
-                $Реализации .= 'Сумма: '.$Заказ['СуммаРеализации'][$key].'<br>';
+                $Реализации .= '<li>'.date('d.m.Y',$ДатаРеализации).'&nbsp;';
+                $Реализации .= $Заказ['СуммаРеализации'][$key].'</li>';
             }
+            $Реализации .= '</ol>';
             
             // собираем безнал платежки
-            $ОплатыБН = '';
+            $ОплатыБН = '<ol>';
             foreach ($Заказ['ДатаПлатежки'] as $key => $ДатаОплаты) {
-                $ОплатыБН .= 'Дата: '.date('d.m.Y',$ДатаОплаты).'<br>';
-                $ОплатыБН .= 'Сумма безнал: '.$Заказ['СуммаПлатежки'][$key].'<br>';
+                $ОплатыБН .= '<li>'.date('d.m.Y',$ДатаОплаты).'&nbsp;';
+                $ОплатыБН .= 'б: '.$Заказ['СуммаПлатежки'][$key].'</li>';
             }
+            $ОплатыБН .= '</ol>';
             
             //собираем наличные платежы
-            $ОплатыНал = '';
+            $ОплатыНал = '<ol>';
             foreach ($Заказ['ДатаЧека'] as $key => $ДатаОплаты) {
-                $ОплатыНал .= 'Дата: '.date('d.m.Y',$ДатаОплаты).'<br>';
-                $ОплатыНал .= 'Сумма нал: '.$Заказ['СуммаЧека'][$key].'<br>';
+                $ОплатыНал .= '<li>'.date('d.m.Y',$ДатаОплаты).'&nbsp;';
+                $ОплатыНал .= 'н: '.$Заказ['СуммаЧека'][$key].'</li>';
+            }
+            $ОплатыНал .= '</ol>';
+            
+	    //менеджер выполнивший заказ
+            $managerFIO = explode(' ',$Заказ['Менеджер_Key']);
+            if (count($managerFIO)>1) {
+                $order_manager = $managerFIO[0].$managerFIO[1][0].$managerFIO[1][1].$managerFIO[2][0].$managerFIO[2][1];
+            } else {
+                $order_manager = $Заказ['Менеджер_Key'];
+            }
+            // менеджер клиента
+            $managerFIO = explode(' ',$Заказ['Менеджер_клиента']);
+            if (count($managerFIO)>1) {
+                $client_manager = $managerFIO[0].$managerFIO[1][0].$managerFIO[1][1].$managerFIO[2][0].$managerFIO[2][1];
+            } else {
+                $client_manager = $Заказ['Менеджер_Key'];
             }
             
             $output .= '<tr>';
-            $output .= '<td>'.date('d.m.Y H:i',$Заказ['ДатаЗаказа']).'</td>';
             $output .= '<td>'.$Заказ['Number'].'</td>';
+            $output .= '<td>'.date('d.m.Y',$Заказ['ДатаЗаказа']).'</td>';
             $output .= '<td>'.str_replace('.',',',$Заказ['СуммаДокумента']).'</td>';
-            $output .= '<td>'.$Контрагенты[$Заказ['Контрагент_Key']].'</td>';
-            $output .= '<td>'.$Организации[$Заказ['Организация_Key']].'</td>';
+            $output .= '<td>'.$Заказ['Контрагент_Key'].'</td>';
+            $output .= '<td>'.$Заказ['Организация_Key'].'</td>';
             $output .= '<td>'.$Реализации.'</td>';
             $output .= '<td>'.$ОплатыБН.$ОплатыНал.'</td>';
-            $output .= '<td>'.$Менеджеры[$Заказ['Менеджер_Key']].'</td>';
-            $output .= '<td>'.$Менеджер_клиента.'</td>'.PHP_EOL;
+            $deltatime = round(($ПоследняяДата - $Заказ['ДатаЗаказа'])/60/60/24);
+            $output .= '<td>'.$deltatime.'</td>';
+            $output .= '<td>'.$order_manager.'</td>';
+            $output .= '<td>'.$client_manager.'</td>'.PHP_EOL;
             $output .= '</tr>';
+            
+            $ordercount++;
         }
     }
     
 }
-$htmlout = '<!DOCTYPE html><html>'.PHP_EOL.
-		'<head>'.PHP_EOL.
-		'<title>Зарплата</title>'.PHP_EOL.
-		'<meta charset="utf-8">'.PHP_EOL.
-        '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">'.PHP_EOL.
-        '<!-- Bootstrap CSS --><link rel="stylesheet" href="css/bootstrap.min.css">'.PHP_EOL.
-		'</head>'.PHP_EOL.
-		'<body>'.PHP_EOL.
-		'<h1>Зарплата</h1>'.PHP_EOL.
-		'<table class="table table-hover">'.PHP_EOL;
+$htmlout = 'Всего заказов: '.$ordercount.'<br>'.PHP_EOL;
+$htmlout .= '<table class="table table-hover">'.PHP_EOL;
 $htmlout .= $output;
-$htmlout .= '</table>'.PHP_EOL.
-            '<script src="js/bootstrap.min.js"></script>'.PHP_EOL.
-            '</body></html>'.PHP_EOL;
+$htmlout .= '</table>'.PHP_EOL;
+
+//возвращаем страницу с таблицей
+echo '<h1>Отчет по заказам с '.$startdate.' по '.$stopdate.' включительно</h1>'.PHP_EOL;
+echo 'С 00:00 по 23:59<br>'.PHP_EOL;
+echo 'б = безналичная оплата<br>н = наличная оплата<br>'.PHP_EOL;
 echo $htmlout;
