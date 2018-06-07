@@ -1,4 +1,5 @@
 <?php
+// запрос данных из 1с по интерфейсу одата в формате json
 function get1cData($client,$userName, $userAccessKey,$fromtable,$select,$where) {
 	$jsonformat = '$format=json;odata=nometadata';
 	$requesturl = $fromtable.'?';
@@ -8,59 +9,21 @@ function get1cData($client,$userName, $userAccessKey,$fromtable,$select,$where) 
 	if (!empty($where)) {
 		$requesturl .= '$filter='.$where.'&';
 	}
-	if (!empty($expand)) {
-		$requesturl .= $expand.'&';
-	}
+	// expand у меня не заработал.
+	//if (!empty($expand)) {
+	//	$requesturl .= $expand.'&';
+	//}
 	$requesturl .= $jsonformat;
-	//print_r($requesturl);
 	$response = $client->request('GET', $requesturl, [
 		'auth' => [$userName, $userAccessKey]
 	]);
-	//$body = $response->getBody()->getContents();
 	$body = $response->getBody();
 	$jsonResponse=json_decode($body,true);
 	return $jsonResponse['value'];
 }
 
-function getMongoData($mongodb,$dbname,$collectionname) {
-    $result = array();
-    $collection = $mongodb->$dbname->$collectionname; //берем коллекцию $collectionname
-    $search = $collection->find([])->toArray();
-    foreach ($search as $tmp) {
-        $result[$tmp['Ref_Key']] = $tmp['Description'];
-    }
-    return $result;
-}
-
-function getColumnId ($columns,$colimntitle) {
-    $result = -1;
-    foreach ($columns as $column) {
-        if ( $colimntitle == $column['title'] ) {
-            $result = $column['id'];
-        }
-    }
-    return $result;
-}
-
-function SpiceEsc($string_to_clear) {
-	$string_to_clear = trim(str_replace(array(" "), "\ ", $string_to_clear)); //удаляем кавычки
-    return $string_to_clear;
-}
-
-function ClearString($string_to_clear) {
-	$string_to_clear = trim(str_replace(array("\r\n", "\r", "\n", "\t"), " ", $string_to_clear)); //удаляем переносы строки, табуляцию, 
-	$string_to_clear = trim(str_replace(array("\""), "", $string_to_clear)); //удаляем кавычки
-	$string_to_clear = trim(str_replace(array("(",")","[","]","{","}","."), "_", $string_to_clear)); //заменяем скобки, точки на подчеркивание
-    $string_to_clear = preg_replace('/ {2,}/',' ',$string_to_clear); //удаляем лишние пробелы
-    $string_to_clear = preg_replace('/;/','/',$string_to_clear); //удаляем тчкзпт, меняем на палочку
-    return $string_to_clear;
-}
-
-function NoSpice($string_to_clear) {
-	$string_to_clear = trim(str_replace(array(" ","."), "_", $string_to_clear)); //удаляем пробелы
-    return $string_to_clear;
-}
-
+// функции для работы с базой монго
+// загрузить документ в монго базу
 function loadToMongo($mongodb,$dbname,$collectionname, $data) {
 	$collection = $mongodb->$dbname->$collectionname; //берем коллекцию $collectionname
 	foreach ($data as $doc) {
@@ -72,7 +35,19 @@ function loadToMongo($mongodb,$dbname,$collectionname, $data) {
 		}
 	}
 }
+// получить всю коллекцию в массиве вида ('ref_key_из_1с' => 'description')
+// используется для получения списков менеджеров, контрагентов, подразделений
+function getMongoData($mongodb,$dbname,$collectionname) {
+    $result = array();
+    $collection = $mongodb->$dbname->$collectionname; //берем коллекцию $collectionname
+    $search = $collection->find([])->toArray();
+    foreach ($search as $tmp) {
+        $result[$tmp['Ref_Key']] = $tmp['Description'];
+    }
+    return $result;
+}
 
+//поиск контактных лиц по телефону в базе монго
 function searchInMongo($mongodb,$dbname, $phone) {
 	$outstr = array();
 	$collection = $mongodb->$dbname->Catalog_КонтактныеЛицаПартнеров;
@@ -106,6 +81,43 @@ function searchInMongo($mongodb,$dbname, $phone) {
 	return $outstr;
 }
 
+// для канборда
+// получить id колонки по имени. В апи канборда такой функции нет
+function getColumnId ($columns,$colimntitle) {
+    $result = -1;
+    foreach ($columns as $column) {
+        if ( $colimntitle == $column['title'] ) {
+            $result = $column['id'];
+        }
+    }
+    return $result;
+}
+
+// остальные функции
+// замена "пробел" на "\пробел". нужно при создании папок на сервере (debian).
+function SpiceEsc($string_to_clear) {
+	$string_to_clear = trim(str_replace(array(" "), "\ ", $string_to_clear)); //удаляем кавычки
+    return $string_to_clear;
+}
+
+// очищаем строку от запрещенных символов. нужно при создании папок на сервере (debian).
+function ClearString($string_to_clear) {
+	$string_to_clear = trim(str_replace(array("\r\n", "\r", "\n", "\t"), " ", $string_to_clear)); //удаляем переносы строки, табуляцию, 
+	$string_to_clear = trim(str_replace(array("\""), "", $string_to_clear)); //удаляем кавычки
+	$string_to_clear = trim(str_replace(array("(",")","[","]","{","}","."), "_", $string_to_clear)); //заменяем скобки, точки на подчеркивание
+    $string_to_clear = preg_replace('/ {2,}/',' ',$string_to_clear); //удаляем лишние пробелы
+    $string_to_clear = preg_replace('/;/','/',$string_to_clear); //удаляем тчкзпт, меняем на палочку
+    return $string_to_clear;
+}
+
+// просто заменяем пробелы на нижнее подчеркивание
+function NoSpice($string_to_clear) {
+	$string_to_clear = trim(str_replace(array(" ","."), "_", $string_to_clear)); //удаляем пробелы
+    return $string_to_clear;
+}
+
+// приводим номер телефона к виду 89205634455
+// нужно для определения номера по контрагентам из 1с (asterisk)
 function normalizator($phone) {
 	$number1c = preg_replace("#[^0-9]#","",$phone); //Все не цифры - нах
 	switch ( 1 ) {
