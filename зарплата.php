@@ -25,7 +25,7 @@
  * Документы отгрузок: Document_РеализацияТоваровУслуг
  * 
  **********************************************************/
-$installpath = '/home/user/proj/03-1c-report';
+$installpath = '/home/user/proj';
 require $installpath.'/vendor/autoload.php';
 
 use GuzzleHttp\Client;
