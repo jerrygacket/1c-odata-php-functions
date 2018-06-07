@@ -100,7 +100,9 @@ function SpiceEsc($string_to_clear) {
     return $string_to_clear;
 }
 
-// очищаем строку от запрещенных символов. нужно при создании папок на сервере (debian).
+// очищаем строку от запрещенных и нежелательных символов.
+// в самбе есть глюк при отображении папок вида "Иванов И. И." при монтировании в Thunar видно что-то типа: _67BF8~D
+// нужно при создании папок на сервере (debian).
 function ClearString($string_to_clear) {
 	$string_to_clear = trim(str_replace(array("\r\n", "\r", "\n", "\t"), " ", $string_to_clear)); //удаляем переносы строки, табуляцию, 
 	$string_to_clear = trim(str_replace(array("\""), "", $string_to_clear)); //удаляем кавычки
@@ -110,9 +112,11 @@ function ClearString($string_to_clear) {
     return $string_to_clear;
 }
 
-// просто заменяем пробелы на нижнее подчеркивание
+// просто заменяем пробелы и минусы на нижнее подчеркивание.
+// чтобы папки создавались однообразно
 function NoSpice($string_to_clear) {
 	$string_to_clear = trim(str_replace(array(" ","."), "_", $string_to_clear)); //удаляем пробелы
+	$string_to_clear = trim(str_replace(array("-"), "_", $string_to_clear)); //удаляем минусы
     return $string_to_clear;
 }
 
