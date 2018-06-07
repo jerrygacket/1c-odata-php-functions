@@ -1,18 +1,5 @@
 <?php
-use GuzzleHttp\Client;
-use GuzzleHttp\Psr7\Request;
-
-function get1cData($fromtable,$select,$where) {
-	$client = new Client([
-		// Base URI is used with relative requests
-		'base_uri' => 'http://10.1.1.10/basename/odata/standard.odata/',
-		// You can set any number of default request options.
-		'timeout'  => 600.0,
-	]);
-	$userAccessKey = 'password';
-	//username of the user who is to logged in. 
-	$userName="username";
-	//***************************************************
+function get1cData($client,$userName, $userAccessKey,$fromtable,$select,$where) {
 	$jsonformat = '$format=json;odata=nometadata';
 	$requesturl = $fromtable.'?';
 	if (!empty($select)) {
@@ -29,9 +16,20 @@ function get1cData($fromtable,$select,$where) {
 	$response = $client->request('GET', $requesturl, [
 		'auth' => [$userName, $userAccessKey]
 	]);
+	//$body = $response->getBody()->getContents();
 	$body = $response->getBody();
 	$jsonResponse=json_decode($body,true);
 	return $jsonResponse['value'];
+}
+
+function getMongoData($mongodb,$dbname,$collectionname) {
+    $result = array();
+    $collection = $mongodb->$dbname->$collectionname; //берем коллекцию $collectionname
+    $search = $collection->find([])->toArray();
+    foreach ($search as $tmp) {
+        $result[$tmp['Ref_Key']] = $tmp['Description'];
+    }
+    return $result;
 }
 
 function ClearString($string_to_clear) {
