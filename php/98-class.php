@@ -57,7 +57,7 @@ class order
         // далее нужен ceil, потому что иногда сумма оплаты почемуто
         // на 3.43232342343653676Е-12 меньше чем сумма документа
         $result = (ceil($this->СуммаОплаты*100)/100) >= (ceil($this->СуммаДокумента*100)/100);
-        //~ if ($this->Number == '0000-005901'){file_put_contents('debug.log',$result);}
+        //~ if ($this->Number == '0000'){file_put_contents('debug.log',$result);}
         return $result;
     }
     
@@ -67,7 +67,7 @@ class order
         // далее нужен ceil, потому что иногда сумма почемуто
         // на 3.43232342343653676Е-12 меньше чем сумма документа
         $result = (ceil($this->СуммаРеализации*100)/100) >= (ceil($this->СуммаДокумента*100)/100);
-        //~ if ($this->Number == '0000-005901'){file_put_contents('debug.log',$result);}
+        //~ if ($this->Number == '0000'){file_put_contents('debug.log',$result);}
         return $result;
     }
     
