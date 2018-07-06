@@ -49,7 +49,7 @@ function ClearString($string_to_clear) {
 }
 
 function NoSpice($string_to_clear) {
-	$string_to_clear = trim(str_replace(array(" ","."), "_", $string_to_clear)); //удаляем кавычки
-    $string_to_clear = trim(str_replace(array("-"), "_", $string_to_clear)); //удаляем кавычки
+	$string_to_clear = trim(str_replace(array(" ","."), "_", $string_to_clear)); // заменяем пробелы и точки на подчеркивание
+    $string_to_clear = trim(str_replace(array("-"), "_", $string_to_clear)); // заменяем тире на подчеркивание
     return $string_to_clear;
 }
